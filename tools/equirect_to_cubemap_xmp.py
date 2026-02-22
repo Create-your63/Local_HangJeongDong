@@ -15,20 +15,31 @@ import math
 from pathlib import Path
 import uuid
 
-import numpy as np
-from PIL import Image
-
-
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
-FACE_SPECS = {
-    "front": {"forward": np.array([0.0, 0.0, 1.0]), "up": np.array([0.0, 1.0, 0.0])},
-    "right": {"forward": np.array([1.0, 0.0, 0.0]), "up": np.array([0.0, 1.0, 0.0])},
-    "back": {"forward": np.array([0.0, 0.0, -1.0]), "up": np.array([0.0, 1.0, 0.0])},
-    "left": {"forward": np.array([-1.0, 0.0, 0.0]), "up": np.array([0.0, 1.0, 0.0])},
-    "up": {"forward": np.array([0.0, 1.0, 0.0]), "up": np.array([0.0, 0.0, -1.0])},
-    "down": {"forward": np.array([0.0, -1.0, 0.0]), "up": np.array([0.0, 0.0, 1.0])},
-}
+
+def require_runtime_dependencies():
+    try:
+        import numpy as np  # type: ignore
+        from PIL import Image  # type: ignore
+    except ModuleNotFoundError as exc:
+        missing = exc.name or "required package"
+        raise SystemExit(
+            f"Missing dependency: {missing}. Install with: python3 -m pip install numpy pillow"
+        ) from exc
+
+    return np, Image
+
+
+def build_face_specs(np):
+    return {
+        "front": {"forward": np.array([0.0, 0.0, 1.0]), "up": np.array([0.0, 1.0, 0.0])},
+        "right": {"forward": np.array([1.0, 0.0, 0.0]), "up": np.array([0.0, 1.0, 0.0])},
+        "back": {"forward": np.array([0.0, 0.0, -1.0]), "up": np.array([0.0, 1.0, 0.0])},
+        "left": {"forward": np.array([-1.0, 0.0, 0.0]), "up": np.array([0.0, 1.0, 0.0])},
+        "up": {"forward": np.array([0.0, 1.0, 0.0]), "up": np.array([0.0, 0.0, -1.0])},
+        "down": {"forward": np.array([0.0, -1.0, 0.0]), "up": np.array([0.0, 0.0, 1.0])},
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,7 +112,7 @@ def list_input_images(input_path: Path) -> list[Path]:
     return [p for p in files if ".mask." not in p.name.lower() and not p.stem.lower().endswith("_mask")]
 
 
-def build_face_dirs(size: int, forward: np.ndarray, up: np.ndarray) -> np.ndarray:
+def build_face_dirs(np, size: int, forward, up):
     right = np.cross(forward, up)
     right /= np.linalg.norm(right)
     up = up / np.linalg.norm(up)
@@ -119,7 +130,7 @@ def build_face_dirs(size: int, forward: np.ndarray, up: np.ndarray) -> np.ndarra
     return dirs / np.linalg.norm(dirs, axis=2, keepdims=True)
 
 
-def bilinear_sample(img: np.ndarray, map_x: np.ndarray, map_y: np.ndarray) -> np.ndarray:
+def bilinear_sample(np, img, map_x, map_y):
     h, w = img.shape[:2]
     x0 = np.floor(map_x).astype(np.int32)
     y0 = np.floor(map_y).astype(np.int32)
@@ -146,14 +157,14 @@ def bilinear_sample(img: np.ndarray, map_x: np.ndarray, map_y: np.ndarray) -> np
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def nearest_sample(img: np.ndarray, map_x: np.ndarray, map_y: np.ndarray) -> np.ndarray:
+def nearest_sample(np, img, map_x, map_y):
     h, w = img.shape[:2]
     xi = np.rint(map_x).astype(np.int32) % w
     yi = np.clip(np.rint(map_y).astype(np.int32), 0, h - 1)
     return img[yi, xi]
 
 
-def rotation_matrix_from_basis(forward: np.ndarray, up: np.ndarray) -> np.ndarray:
+def rotation_matrix_from_basis(np, forward, up):
     right = np.cross(forward, up)
     right /= np.linalg.norm(right)
     up = up / np.linalg.norm(up)
@@ -161,7 +172,7 @@ def rotation_matrix_from_basis(forward: np.ndarray, up: np.ndarray) -> np.ndarra
     return np.stack([right, up, forward], axis=1)
 
 
-def xmp_text(ns: str, rotation: np.ndarray, rig_id: str, rig_instance_id: str, pose_index: int) -> str:
+def xmp_text(ns: str, rotation, rig_id: str, rig_instance_id: str, pose_index: int) -> str:
     flat_rot = " ".join(f"{v:.9f}" for v in rotation.reshape(-1))
     return f'''<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -182,7 +193,7 @@ def xmp_text(ns: str, rotation: np.ndarray, rig_id: str, rig_instance_id: str, p
 '''
 
 
-def save_image(face: np.ndarray, path: Path, image_format: str, jpg_quality: int) -> None:
+def save_image(Image, face, path: Path, image_format: str, jpg_quality: int) -> None:
     if image_format == "png":
         Image.fromarray(face).save(path, format="PNG", optimize=False)
     else:
@@ -208,10 +219,13 @@ def build_output_mask_name(image_out_name: str, face_base: str, args: argparse.N
 
 
 def process_one(
+    np,
+    Image,
+    face_specs,
     image_path: Path,
     output_dir: Path,
     args: argparse.Namespace,
-    precomputed_face_dirs: dict[str, np.ndarray],
+    precomputed_face_dirs: dict[str, object],
     rig_id: str,
 ) -> dict:
     base_name = args.base_name if (args.base_name and args.input.is_file()) else image_path.stem
@@ -219,7 +233,7 @@ def process_one(
     image = np.array(Image.open(image_path).convert("RGB"), dtype=np.float32)
     h, w = image.shape[:2]
 
-    mask_arr: np.ndarray | None = None
+    mask_arr = None
     mask_source: Path | None = None
     if args.with_masks:
         mask_source = find_input_mask(image_path, args.input_mask_suffix)
@@ -230,7 +244,7 @@ def process_one(
     rig_instance_id = str(uuid.uuid4())
     manifest_faces = []
 
-    for pose_index, (face_name, spec) in enumerate(FACE_SPECS.items()):
+    for pose_index, (face_name, spec) in enumerate(face_specs.items()):
         dirs = precomputed_face_dirs[face_name]
         x, y, z = dirs[..., 0], dirs[..., 1], dirs[..., 2]
         lon = np.arctan2(x, z)
@@ -238,19 +252,19 @@ def process_one(
         map_x = (lon / (2.0 * math.pi) + 0.5) * (w - 1)
         map_y = (0.5 - lat / math.pi) * (h - 1)
 
-        face_rgb = bilinear_sample(image, map_x, map_y)
+        face_rgb = bilinear_sample(np, image, map_x, map_y)
         face_base = f"{base_name}_{face_name}"
         image_name = f"{face_base}.{args.image_format}"
         image_out = output_dir / image_name
-        save_image(face_rgb, image_out, args.image_format, args.jpg_quality)
+        save_image(Image, face_rgb, image_out, args.image_format, args.jpg_quality)
 
-        rot = rotation_matrix_from_basis(spec["forward"], spec["up"])
+        rot = rotation_matrix_from_basis(np, spec["forward"], spec["up"])
         xmp_path = image_out.with_suffix(image_out.suffix + ".xmp")
         xmp_path.write_text(xmp_text(args.xmp_namespace, rot, rig_id, rig_instance_id, pose_index), encoding="utf-8")
 
         mask_out_name = None
         if mask_arr is not None:
-            mask_face = nearest_sample(mask_arr, map_x, map_y)
+            mask_face = nearest_sample(np, mask_arr, map_x, map_y)
             mask_out_name = build_output_mask_name(image_name, face_base, args)
             Image.fromarray(mask_face).save(output_dir / mask_out_name, format="PNG", optimize=False)
 
@@ -276,6 +290,8 @@ def process_one(
 
 def main() -> None:
     args = parse_args()
+    np, Image = require_runtime_dependencies()
+    face_specs = build_face_specs(np)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     images = list_input_images(args.input)
@@ -284,11 +300,14 @@ def main() -> None:
 
     rig_id = str(uuid.uuid4())
     precomputed_face_dirs = {
-        face_name: build_face_dirs(args.face_size, spec["forward"], spec["up"])
-        for face_name, spec in FACE_SPECS.items()
+        face_name: build_face_dirs(np, args.face_size, spec["forward"], spec["up"])
+        for face_name, spec in face_specs.items()
     }
 
-    manifest_items = [process_one(img, args.output_dir, args, precomputed_face_dirs, rig_id) for img in images]
+    manifest_items = [
+        process_one(np, Image, face_specs, img, args.output_dir, args, precomputed_face_dirs, rig_id)
+        for img in images
+    ]
 
     manifest = {
         "source": str(args.input),
