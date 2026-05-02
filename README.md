@@ -39,3 +39,17 @@ fig = px.choropleth_mapbox(seoul_info,
 fig
 ```
 ![](https://github.com/raqoon886/Local_HangJeongDong/blob/master/seoul.png?raw=true)
+
+---
+
+## Web Viewer (Point Cloud + Gaussian Splatting)
+
+`index.html`을 브라우저에서 열면 포인트클라우드(PLY/PCD)와 가우시안 스플래팅(`.splat`/`.ksplat`)을 같은 UI에서 전환해 볼 수 있습니다.
+
+### 빠른 실행
+```bash
+python3 -m http.server 8080
+# 브라우저에서 http://localhost:8080/index.html 접속
+```
+
+> 주의: 외부 URL 로딩 시 데이터 서버의 CORS 허용이 필요합니다.
