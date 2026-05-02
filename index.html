@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Point Cloud + Gaussian Splat Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>웹 포인트클라우드 / 가우시안 스플래팅 뷰어</h1>
+      <p>같은 페이지에서 두 가지 렌더링 방식을 전환해서 볼 수 있습니다.</p>
+    </header>
+
+    <main>
+      <section class="controls">
+        <label for="modeSelect">렌더링 모드</label>
+        <select id="modeSelect">
+          <option value="point">Point Cloud (PLY/PCD)</option>
+          <option value="splat">Gaussian Splatting (.splat/.ksplat)</option>
+        </select>
+
+        <label for="urlInput">데이터 URL</label>
+        <input id="urlInput" type="text" placeholder="https://.../model.ply 또는 model.splat" />
+        <button id="loadBtn">불러오기</button>
+
+        <p class="hint">
+          샘플: Point Cloud는 PLY/PCD, Gaussian은 splat/ksplat URL을 입력하세요.
+        </p>
+      </section>
+
+      <section id="viewerSection">
+        <canvas id="viewerCanvas"></canvas>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
